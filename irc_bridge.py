@@ -52,9 +52,9 @@ class IrcBridgePlugin(WillPlugin):
             p = Process(target=self.bootstrap_irc)
             p.start()
             connected_to_irc = True
-            self.reply(message, "Connected to IRC!")
+            self.reply(message, "Connecting to IRC")
         else:
-            self.reply(message, "Already connected!")
+            self.reply(message, "Already connected")
 
     @require_settings("IRC_BRIDGE_IRC_SERVER",
                       "IRC_BRIDGE_IRC_PORT",

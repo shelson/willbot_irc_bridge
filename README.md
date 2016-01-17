@@ -15,10 +15,10 @@ Usage:
 
      > IRC_BRIDGE_IRC_SERVER="irc.server.name"  
      > IRC_BRIDGE_IRC_PORT="6667"  
-     > IRC_BRIDGE_NICKNAME="will_bot" 
-     > IRC_BRIDGE_USE_SSL=False 
-     > IRC_BRIDGE_CHANNELS = [ "#list", "#of", "#irc", "#channels" ] 
-     > IRC_BRIDGE_NICKNAME="will_bot" 
+     > IRC_BRIDGE_NICKNAME="will_bot"  
+     > IRC_BRIDGE_USE_SSL=False  
+     > IRC_BRIDGE_CHANNELS = [ "#list", "#of", "#irc", "#channels" ]  
+     > IRC_BRIDGE_NICKNAME="will_bot"  
 
  5. Make sure your Will Bot is configured to join the Hipchat rooms with the same name as the IRC channels (without the #). Note that this is currently case-sensitive when relaying messages from IRC to Hipchat, which can cause issues with Hipchat rooms with capitals in the name.
  6. In a Hipchat room where Will Bot has joined, issue the command "@willbotname connect to IRC". This will instruct the plugin to connect to the IRC server and join the list of channels, and start relaying messages. This should be all that you need to do to make it work.

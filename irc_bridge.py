@@ -70,8 +70,6 @@ class IrcBridgePlugin(WillPlugin):
         global connected_to_irc
 
         if connected_to_irc:
-            print dir(message)
-            print message.get_type()
             hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "user": message.sender.mention_name.encode('utf-8'), "message": message["body"].encode('utf-8')})
 
             if irc_bridge_verbose:

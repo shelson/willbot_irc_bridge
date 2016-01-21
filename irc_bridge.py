@@ -3,6 +3,9 @@ from will.mixins import HipChatMixin
 from will.decorators import respond_to, periodic, hear, randomly, route, rendered_template, require_settings
 from will import settings
 
+# sorting out html
+import cgi
+
 from multiprocessing import Process, Queue
 
 # Twisted
@@ -56,6 +59,8 @@ class IrcBridgePlugin(WillPlugin):
         else:
             self.reply(message, "Already connected")
 
+
+    # This is where we grab hipchat messages and put them in a queue to head to IRC
     @require_settings("IRC_BRIDGE_IRC_SERVER",
                       "IRC_BRIDGE_IRC_PORT",
                       "IRC_BRIDGE_CHANNELS")
@@ -65,7 +70,9 @@ class IrcBridgePlugin(WillPlugin):
         global connected_to_irc
 
         if connected_to_irc:
-            hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "message": "<%s> %s" % (message.sender.mention_name.encode('utf-8'), message["body"].encode('utf-8'))})
+            print dir(message)
+            print message.get_type()
+            hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "user": message.sender.mention_name.encode('utf-8'), "message": message["body"].encode('utf-8')})
 
             if irc_bridge_verbose:
                 self.reply(message, "Sent to IRC queue, queue length is now %d" % hipchat_to_irc_queue.qsize())
@@ -97,7 +104,7 @@ class IrcBot(irc.IRCClient):
         """This will get called when the bot receives a message."""
         user = user.split('!', 1)[0]
 
-        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "message": "<%s> %s" % (user, msg)})
+        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": msg})
 
         # Check to see if they're sending me a private message
         if channel == self.nickname:
@@ -108,7 +115,7 @@ class IrcBot(irc.IRCClient):
     def action(self, user, channel, msg):
         """This will get called when the bot sees someone do an action."""
         user = user.split('!', 1)[0]
-        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "message": "<%s> %s" % (user, msg)})
+        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": msg})
 
     # irc callbacks
 
@@ -165,7 +172,14 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         if hasattr(self.ircbot, "msg"):
             while not self.hipchat_to_irc_queue.empty():
                 m = self.hipchat_to_irc_queue.get()
-                self.ircbot.msg(m["channel"], m["message"])
+                # light touch html sanitisation for Confluence messages
+                # make this more generic in future as it's a hack
+                if m["user"] == "Confluence":
+                    soup = BeautifulSoup.BeautifulSoup(m["message"])
+                    message = " ".join(soup.getText(" ").split(" ")[2:])
+                else:
+                    message = m["message"]
+                self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message))
         else:
             print "Not connected yet"
 
@@ -180,12 +194,16 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         while not self.irc_to_hipchat_queue.empty():
             m = self.irc_to_hipchat_queue.get()
             try:    
-                todo[m["channel"]].append(m["message"])
+                todo[m["channel"]].append((m["user"], m["message"]))
             except KeyError:
-                todo[m["channel"]] = [m["message"]]
+                todo[m["channel"]] = [(m["user"], m["message"])]
 
         for channel in todo:
-            self.send_room_message(channel, "\r\n".join(todo[channel]), html=False)
+            # create some nice html to send to hipchat
+            html_message = ""
+            for (user, msg) in todo[channel]:
+                html_message = html_message + "<b>%s</b> %s<br>" % (cgi.escape(user), cgi.escape(msg))
+            self.send_room_message(channel, html_message, html=True)
 
         # schedule ourselves for another run
         reactor.callLater(self.update_interval, self.update_hipchat)

@@ -5,6 +5,7 @@ from will import settings
 
 # sorting out html
 import cgi
+import BeautifulSoup
 
 from multiprocessing import Process, Queue
 
@@ -70,7 +71,17 @@ class IrcBridgePlugin(WillPlugin):
         global connected_to_irc
 
         if connected_to_irc:
-            hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "user": message.sender.mention_name.encode('utf-8'), "message": message["body"].encode('utf-8')})
+            try:
+                sender = message.sender.mention_name
+            except AttributeError:
+                # sometimes the sender is really munged
+                try:
+                    sender = message["mucnick"].replace(" ", "_")
+                except AttributeError:
+                    print "Couldn't work out who sent message, giving up"
+                    return
+
+            hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "user": sender.encode('utf-8'), "message": message["body"].encode('utf-8')})
 
             if irc_bridge_verbose:
                 self.reply(message, "Sent to IRC queue, queue length is now %d" % hipchat_to_irc_queue.qsize())
@@ -177,7 +188,7 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                     message = " ".join(soup.getText(" ").split(" ")[2:])
                 else:
                     message = m["message"]
-                self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message))
+                self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
         else:
             print "Not connected yet"
 

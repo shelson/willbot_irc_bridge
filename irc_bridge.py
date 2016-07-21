@@ -17,10 +17,13 @@ from twisted.words.protocols import irc
 # Queues for IRC<->HC
 irc_to_hipchat_queue = Queue()
 hipchat_to_irc_queue = Queue()
-connected_to_irc = False
 irc_bridge_verbose = False
 
 class IrcBridgePlugin(WillPlugin):
+    def __init__(self):
+        self.connected_to_irc = False
+        self.connect()
+
     def bootstrap_irc(self):
         self.ircbot = IrcHipchatBridge(self.irc_host, 
                                        self.irc_port, 
@@ -36,10 +39,9 @@ class IrcBridgePlugin(WillPlugin):
                       "IRC_BRIDGE_IRC_PORT",
                       "IRC_BRIDGE_CHANNELS",
                       "IRC_BRIDGE_NICKNAME")
-    @respond_to("^connect to irc$")
-    def connect(self, message):
-        global connected_to_irc
-        if not connected_to_irc:
+
+    def connect(self):
+        if not self.connected_to_irc:
             self.irc_host = settings.IRC_BRIDGE_IRC_SERVER
             self.irc_port = int(settings.IRC_BRIDGE_IRC_PORT)
             self.channels = settings.IRC_BRIDGE_CHANNELS
@@ -55,10 +57,8 @@ class IrcBridgePlugin(WillPlugin):
 
             p = Process(target=self.bootstrap_irc)
             p.start()
-            connected_to_irc = True
-            self.reply(message, "Connecting to IRC")
-        else:
-            self.reply(message, "Already connected")
+            self.connected_to_irc = True
+            self.say(message, "Connecting to IRC")
 
 
     # This is where we grab hipchat messages and put them in a queue to head to IRC
@@ -68,9 +68,8 @@ class IrcBridgePlugin(WillPlugin):
     @hear("^.*$")
     def send_to_irc(self, message):
         global hipchat_to_irc_queue
-        global connected_to_irc
 
-        if connected_to_irc:
+        if self.connected_to_irc:
             try:
                 sender = message.sender.mention_name
             except AttributeError:

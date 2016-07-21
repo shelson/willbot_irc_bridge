@@ -58,7 +58,7 @@ class IrcBridgePlugin(WillPlugin):
             p = Process(target=self.bootstrap_irc)
             p.start()
             self.connected_to_irc = True
-            self.say(message, "Connecting to IRC")
+            self.say("Connecting to IRC")
 
 
     # This is where we grab hipchat messages and put them in a queue to head to IRC

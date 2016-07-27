@@ -43,7 +43,7 @@ class IrcBridgePlugin(WillPlugin):
         if not self.connected_to_irc:
             self.irc_host = settings.IRC_BRIDGE_IRC_SERVER
             self.irc_port = int(settings.IRC_BRIDGE_IRC_PORT)
-            self.channels = settings.ROOMS
+            self.channels = [ "#%s" % i for i in settings.ROOMS ]
             self.irc_nickname = settings.IRC_BRIDGE_NICKNAME
             if hasattr(settings, "IRC_BRIDGE_PASSWORD"):
                 self.irc_password = settings.IRC_BRIDGE_PASSWORD

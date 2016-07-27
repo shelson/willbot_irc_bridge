@@ -37,14 +37,13 @@ class IrcBridgePlugin(WillPlugin):
         
     @require_settings("IRC_BRIDGE_IRC_SERVER",
                       "IRC_BRIDGE_IRC_PORT",
-                      "IRC_BRIDGE_CHANNELS",
                       "IRC_BRIDGE_NICKNAME")
 
     def connect(self):
         if not self.connected_to_irc:
             self.irc_host = settings.IRC_BRIDGE_IRC_SERVER
             self.irc_port = int(settings.IRC_BRIDGE_IRC_PORT)
-            self.channels = settings.IRC_BRIDGE_CHANNELS
+            self.channels = settings.ROOMS
             self.irc_nickname = settings.IRC_BRIDGE_NICKNAME
             if hasattr(settings, "IRC_BRIDGE_PASSWORD"):
                 self.irc_password = settings.IRC_BRIDGE_PASSWORD
@@ -63,8 +62,7 @@ class IrcBridgePlugin(WillPlugin):
 
     # This is where we grab hipchat messages and put them in a queue to head to IRC
     @require_settings("IRC_BRIDGE_IRC_SERVER",
-                      "IRC_BRIDGE_IRC_PORT",
-                      "IRC_BRIDGE_CHANNELS")
+                      "IRC_BRIDGE_IRC_PORT")
     @hear("^.*$")
     def send_to_irc(self, message):
         global hipchat_to_irc_queue

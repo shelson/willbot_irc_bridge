@@ -25,16 +25,16 @@ class IrcBridgePlugin(WillPlugin):
         self.connect()
 
     def bootstrap_irc(self):
-        self.ircbot = IrcHipchatBridge(self.irc_host, 
-                                       self.irc_port, 
-                                       self.irc_password, 
+        self.ircbot = IrcHipchatBridge(self.irc_host,
+                                       self.irc_port,
+                                       self.irc_password,
                                        self.irc_nickname,
                                        self.channels,
                                        self.use_ssl,
-                                       hipchat_to_irc_queue, 
+                                       hipchat_to_irc_queue,
                                        irc_to_hipchat_queue)
         self.ircbot.run()
-        
+
     @require_settings("IRC_BRIDGE_IRC_SERVER",
                       "IRC_BRIDGE_IRC_PORT",
                       "IRC_BRIDGE_NICKNAME")
@@ -63,7 +63,7 @@ class IrcBridgePlugin(WillPlugin):
     # This is where we grab hipchat messages and put them in a queue to head to IRC
     @require_settings("IRC_BRIDGE_IRC_SERVER",
                       "IRC_BRIDGE_IRC_PORT")
-    @hear("^.*$")
+    @hear("^(.|\n)*$", multiline=True)
     def send_to_irc(self, message):
         global hipchat_to_irc_queue
 
@@ -78,7 +78,8 @@ class IrcBridgePlugin(WillPlugin):
                     print "Couldn't work out who sent message, giving up"
                     return
 
-            hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "user": sender.encode('utf-8'), "message": message["body"].encode('utf-8')})
+            for msgline in message['body'].split(u'\n'):
+                hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "user": sender.encode('utf-8'), "message": msgline.encode('utf-8')})
 
             if irc_bridge_verbose:
                 self.reply(message, "Sent to IRC queue, queue length is now %d" % hipchat_to_irc_queue.qsize())
@@ -163,7 +164,7 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         self.ircbot.password = self.irc_password
         self.ircbot.factory = self
         self.ircbot.irc_to_hipchat_queue = self.irc_to_hipchat_queue
-        return self.ircbot 
+        return self.ircbot
 
     def clientConnectionLost(self, connector, reason):
         """If we get disconnected, reconnect to server."""
@@ -193,13 +194,13 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
 
     def update_hipchat(self):
         # this has some smarts because of the hipchat ratelimiting
-        # so every time it runs it batches up the messages for a 
+        # so every time it runs it batches up the messages for a
         # room and sends them as a single hipchat "message"
         # or that's the theory at least
         todo = {}
         while not self.irc_to_hipchat_queue.empty():
             m = self.irc_to_hipchat_queue.get()
-            try:    
+            try:
                 todo[m["channel"]].append((m["user"], m["message"]))
             except KeyError:
                 todo[m["channel"]] = [(m["user"], m["message"])]
@@ -213,7 +214,6 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
 
         # schedule ourselves for another run
         reactor.callLater(self.update_interval, self.update_hipchat)
-        
 
     def run(self):
         # set up our update loop with a small delay for connecting

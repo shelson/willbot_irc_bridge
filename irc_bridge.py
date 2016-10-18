@@ -181,7 +181,7 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 m = self.hipchat_to_irc_queue.get()
                 # light touch html sanitisation for Confluence messages
                 # make this more generic in future as it's a hack
-                if m["user"] == "Confluence":
+                if m["user"] == "Confluence" or m["user"] == "Link":
                     soup = BeautifulSoup.BeautifulSoup(m["message"])
                     message = " ".join(soup.getText(" ").split(" ")[2:])
                 else:

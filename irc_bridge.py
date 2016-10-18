@@ -187,7 +187,7 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                     message = " ".join(soup.getText(" ").split(" ")[2:])
                 else:
                     message = m["message"]
-                if re.match("^\s*$", message):
+                if not re.match("^\s*$", message):
                     self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
         else:
             print "Not connected yet"

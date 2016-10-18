@@ -5,6 +5,7 @@ from will import settings
 
 # sorting out html
 import cgi
+import nltk
 import BeautifulSoup
 
 from multiprocessing import Process, Queue
@@ -184,6 +185,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 if m["user"] == "Confluence" or m["user"] == "Link":
                     soup = BeautifulSoup.BeautifulSoup(m["message"])
                     message = " ".join(soup.getText(" ").split(" ")[2:])
+                elif m["user"] == "Link":
+                    self.irc.msg(m["channel"], "SHHH, I'm stripping some HTML")
+                    message = nltk.clean_html(m["message"])
                 else:
                     message = m["message"]
                 self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))

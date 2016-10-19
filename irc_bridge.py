@@ -209,10 +209,10 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
 
         for channel in todo:
             # create some nice html to send to hipchat
-            html_message = ""
+            txt_message = ""
             for (user, msg) in todo[channel]:
-                html_message = html_message + "*%s* %s" % (cgi.escape(user), cgi.escape(msg))
-            self.send_room_message(channel, html_message, html=False)
+                txt_message = txt_message + "<%s> %s" % (cgi.escape(user), cgi.escape(msg))
+            self.send_room_message(channel, txt_message, html=False)
 
         # schedule ourselves for another run
         reactor.callLater(self.update_interval, self.update_hipchat)

@@ -184,9 +184,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 # make this more generic in future as it's a hack
                 if m["user"] == "Confluence" or m["user"] == "Link":
                     soup = BeautifulSoup.BeautifulSoup(m["message"])
-                    message = " ".join(soup.getText(" "))
+                    message =soup.getText(" ")
                     if m["user"] == "Confluence":
-                        message = message.split(" ")[2:]
+                        message = " ".join(message.split(" ")[2:])
                 else:
                     message = m["message"]
                 if not re.match("^\s*$", message):

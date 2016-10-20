@@ -6,6 +6,7 @@ from will import settings
 # sorting out html
 import cgi
 import BeautifulSoup
+import re
 
 from multiprocessing import Process, Queue
 
@@ -181,12 +182,15 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 m = self.hipchat_to_irc_queue.get()
                 # light touch html sanitisation for Confluence messages
                 # make this more generic in future as it's a hack
-                if m["user"] == "Confluence":
+                if m["user"] == "Confluence" or m["user"] == "Link":
                     soup = BeautifulSoup.BeautifulSoup(m["message"])
-                    message = " ".join(soup.getText(" ").split(" ")[2:])
+                    message =soup.getText(" ")
+                    if m["user"] == "Confluence":
+                        message = " ".join(message.split(" ")[2:])
                 else:
                     message = m["message"]
-                self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
+                if not re.match("^\s*$", message):
+                    self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
         else:
             print "Not connected yet"
 
@@ -207,10 +211,10 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
 
         for channel in todo:
             # create some nice html to send to hipchat
-            html_message = ""
+            txt_message = ""
             for (user, msg) in todo[channel]:
-                html_message = html_message + "<b>%s</b> %s<br>" % (cgi.escape(user), cgi.escape(msg))
-            self.send_room_message(channel, html_message, html=True)
+                txt_message = txt_message + "<%s> %s" % (cgi.escape(user), cgi.escape(msg))
+            self.send_room_message(channel, txt_message, html=False)
 
         # schedule ourselves for another run
         reactor.callLater(self.update_interval, self.update_hipchat)

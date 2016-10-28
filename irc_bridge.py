@@ -4,9 +4,9 @@ from will.decorators import respond_to, periodic, hear, randomly, route, rendere
 from will import settings
 
 # sorting out html
-import cgi
 import BeautifulSoup
 import re
+import urllib
 
 from multiprocessing import Process, Queue
 
@@ -143,7 +143,6 @@ class IrcBot(irc.IRCClient):
         return nickname + '^'
 
 
-
 class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
     def __init__(self, host, port, password, nickname, channels, use_ssl, hipchat_to_irc_queue, irc_to_hipchat_queue):
         self.ircbot = None
@@ -210,10 +209,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 todo[m["channel"]] = [(m["user"], m["message"])]
 
         for channel in todo:
-            # create some nice html to send to hipchat
             txt_message = ""
             for (user, msg) in todo[channel]:
-                txt_message = txt_message + "<%s> %s" % (cgi.escape(user), cgi.escape(msg))
+                txt_message = txt_message + "<%s> %s\n" % (user, urllib.unquote(msg))
             self.send_room_message(channel, txt_message, html=False)
 
         # schedule ourselves for another run

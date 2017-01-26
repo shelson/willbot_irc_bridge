@@ -174,7 +174,6 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         print "connection failed:", reason
         reactor.stop()
 
-
     def update_irc(self):
         if hasattr(self.ircbot, "msg"):
             while not self.hipchat_to_irc_queue.empty():
@@ -211,7 +210,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         for channel in todo:
             txt_message = ""
             for (user, msg) in todo[channel]:
-                txt_message = txt_message + "<%s> %s\n" % (user, urllib.unquote(msg))
+                # TODO: Translate into proper html rather than just losing this information
+                ansi_pattern = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
+                txt_message = txt_message + "<%s> %s\n" % (user, urllib.unquote(ansi_pattern.sub('',msg)))
             self.send_room_message(channel, txt_message, html=False)
 
         # schedule ourselves for another run

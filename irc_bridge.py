@@ -5,6 +5,7 @@ from will import settings
 
 # sorting out html
 import BeautifulSoup
+import logging
 import re
 import urllib
 
@@ -19,6 +20,7 @@ from twisted.words.protocols import irc
 irc_to_hipchat_queue = Queue()
 hipchat_to_irc_queue = Queue()
 irc_bridge_verbose = False
+
 
 class IrcBridgePlugin(WillPlugin):
     def __init__(self):
@@ -76,7 +78,7 @@ class IrcBridgePlugin(WillPlugin):
                 try:
                     sender = message["mucnick"].replace(" ", "_")
                 except AttributeError:
-                    print "Couldn't work out who sent message, giving up"
+                    logging.error("Couldn't work out who sent message, giving up")
                     return
 
             for msgline in message['body'].split(u'\n'):
@@ -90,6 +92,7 @@ class IrcBot(irc.IRCClient):
 
     # this should be overwritten
     nickname = "willbot"
+    relay = True
 
     def connectionMade(self):
         irc.IRCClient.connectionMade(self)
@@ -112,7 +115,7 @@ class IrcBot(irc.IRCClient):
         """This will get called when the bot receives a message."""
         user = user.split('!', 1)[0]
 
-        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": msg})
+        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
 
         # Check to see if they're sending me a private message
         if channel == self.nickname:
@@ -123,7 +126,7 @@ class IrcBot(irc.IRCClient):
     def action(self, user, channel, msg):
         """This will get called when the bot sees someone do an action."""
         user = user.split('!', 1)[0]
-        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": msg})
+        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
 
     # irc callbacks
 
@@ -132,6 +135,14 @@ class IrcBot(irc.IRCClient):
         old_nick = prefix.split('!')[0]
         new_nick = params[0]
 
+    def irc_unknown(self, prefix, command, params):
+        """ Handle unknown IRC command """
+        if command == "INVITE":
+            # TODO: Join the room and start relaying
+            #self.join(params[1])
+            # For now, just reply back to the user and respond
+            user = prefix.split('!')[0]
+            self.msg(user, "Sorry, please follow y/rb-hipchat-irc-bridge if you want to bridge a channel!")
 
     # For fun, override the method that determines how a nickname is changed on
     # collisions. The default method appends an underscore.
@@ -140,11 +151,12 @@ class IrcBot(irc.IRCClient):
         Generate an altered version of a nickname that caused a collision in an
         effort to create an unused related name for subsequent registration.
         """
+        self.relay = False
+        logging.error("Found another IRC user with nick %s, NOT RELAYING.", nickname)
         return nickname + '^'
 
-
 class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
-    def __init__(self, host, port, password, nickname, channels, use_ssl, hipchat_to_irc_queue, irc_to_hipchat_queue):
+    def __init__(self, host, port, password, nickname, channels, use_ssl, hipchat_to_irc_queue, irc_to_hipchat_queue, relay=True):
         self.ircbot = None
         self.channels = channels
         self.irc_host = host
@@ -157,6 +169,7 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         # hipchat ratelimits to 30 requests/min so we run
         # the update thread every 2 seconds
         self.update_interval = 2
+        self.relay = relay
 
     def buildProtocol(self, addr):
         self.ircbot = IrcBot()
@@ -171,12 +184,14 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         connector.connect()
 
     def clientConnectionFailed(self, connector, reason):
-        print "connection failed:", reason
+        logging.error("connection failed:", reason)
         reactor.stop()
 
 
     def update_irc(self):
         if hasattr(self.ircbot, "msg"):
+            # update relay state
+            self.relay = self.ircbot.relay
             while not self.hipchat_to_irc_queue.empty():
                 m = self.hipchat_to_irc_queue.get()
                 # light touch html sanitisation for Confluence messages
@@ -189,9 +204,12 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 else:
                     message = m["message"]
                 if not re.match("^\s*$", message):
-                    self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
+                    if self.relay:
+                        self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
+                    else:
+                        logging.debug("Not relaying messages %s", message)
         else:
-            print "Not connected yet"
+            logging.error("Can't relay message to IRC; Not connected yet")
 
         reactor.callLater(self.update_interval, self.update_irc)
 
@@ -212,7 +230,11 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
             txt_message = ""
             for (user, msg) in todo[channel]:
                 txt_message = txt_message + "<%s> %s\n" % (user, urllib.unquote(msg))
-            self.send_room_message(channel, txt_message, html=False)
+
+            if self.relay:
+                self.send_room_message(channel, txt_message, html=False, notify=True)
+            else:
+                logging.debug("Not relaying message %s",txt_message)
 
         # schedule ourselves for another run
         reactor.callLater(self.update_interval, self.update_hipchat)

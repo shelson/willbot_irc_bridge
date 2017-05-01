@@ -3,6 +3,12 @@ from will.mixins import HipChatMixin
 from will.decorators import respond_to, periodic, hear, randomly, route, rendered_template, require_settings
 from will import settings
 
+# imports so we can make our own send_room_message method
+import traceback
+import requests
+import json
+import time
+
 # sorting out html
 import BeautifulSoup
 import logging
@@ -15,6 +21,11 @@ from multiprocessing import Process, Queue
 from twisted.internet import ssl, reactor, protocol
 from twisted.internet.protocol import ClientFactory, Protocol
 from twisted.words.protocols import irc
+
+# because we're going off-piste and using our own api send methond
+# so we can monitor the rate-limiting
+ROOM_NOTIFICATION_URL = "https://%(server)s/v2/room/%(room_id)s/notification?auth_token=%(token)s"
+
 
 # Queues for IRC<->HC
 irc_to_hipchat_queue = Queue()
@@ -106,6 +117,7 @@ class IrcBot(irc.IRCClient):
         """Called when bot has succesfully signed on to server."""
         for channel in self.factory.channels:
             self.join(channel)
+            self.factory.stats.channels[channel] = IrcHipchatChannelStat()
 
     def joined(self, channel):
         """This will get called when the bot joins the channel."""
@@ -113,20 +125,52 @@ class IrcBot(irc.IRCClient):
 
     def privmsg(self, user, channel, msg):
         """This will get called when the bot receives a message."""
-        user = user.split('!', 1)[0]
 
-        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
+        user = user.split('!', 1)[0]
 
         # Check to see if they're sending me a private message
         if channel == self.nickname:
-            msg = "I don't respond well to PM's yet."
-            self.msg(user, msg)
+            if irc.stripFormatting(msg) == "stats":
+                self.stats(user)
+            elif irc.stripFormatting(msg) == "stats detail":
+                self.stats(user, detail=True)
+            else:
+                msg = "I don't respond well to PM's yet."
+                self.msg(user, msg)
             return
+
+        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
+        self.factory.stats.irc_relay_enqueued += 1
+        self.factory.stats.channels[channel].irc_relay_enqueued +=1
+
+    def stats(self, user, detail=False):
+        """Output some statistics about our lovely self """
+        msg = "irc_to_hipchat_queue length: %d" % self.factory.irc_to_hipchat_queue.qsize()
+        self.msg(user, msg)
+        msg = "hipchat_to_irc_queue length: %d" % self.factory.hipchat_to_irc_queue.qsize()
+        self.msg(user, msg)
+        msg = "I have enqueued %d messages from IRC and sent %d of these to Hipchat via %d API calls" % (self.factory.stats.irc_relay_enqueued, self.factory.stats.irc_relay_dequeued, self.factory.stats.hipchat_api_count)
+        self.msg(user, msg)
+        msg = "I have relayed %d messages from HipChat to IRC" % self.factory.stats.hipchat_relay_count
+        self.msg(user, msg)
+        if (int(self.factory.stats.ratelimit_reset) - int(time.time())) < 0:
+            msg = "x-ratelimit-remaining is currently %s out of %s" % (self.factory.stats.ratelimit_limit, self.factory.stats.ratelimit_limit)
+        else:
+            msg = "x-ratelimit-remaining is currently %s out of %s with %d seconds to go" % (self.factory.stats.ratelimit_remaining, self.factory.stats.ratelimit_limit, (int(self.factory.stats.ratelimit_reset) - int(time.time())))
+        self.msg(user, msg)
+
+        if detail:
+            for channel in self.factory.stats.channels:
+                msg = "%s: %s enqueued, %s dequeued, %s API calls, %s hipchat-to-irc" % (channel, self.factory.stats.channels[channel].irc_relay_enqueued, self.factory.stats.channels[channel].irc_relay_dequeued, self.factory.stats.channels[channel].hipchat_api_count, self.factory.stats.channels[channel].hipchat_relay_count)
+                self.msg(user, msg)
+
 
     def action(self, user, channel, msg):
         """This will get called when the bot sees someone do an action."""
         user = user.split('!', 1)[0]
         self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
+        self.factory.stats.irc_relay_enqueued += 1
+        self.factory.stats.channels['#' + channel].irc_relay_enqueued += 1
 
     # irc callbacks
 
@@ -155,6 +199,24 @@ class IrcBot(irc.IRCClient):
         logging.error("Found another IRC user with nick %s, NOT RELAYING.", nickname)
         return nickname + '^'
 
+class IrcHipchatChannelStat(object):
+    def __init__(self):
+        self.irc_relay_enqueued = 0
+        self.irc_relay_dequeued = 0
+        self.hipchat_api_count = 0
+        self.hipchat_relay_count = 0
+
+class IrcHipchatStats(object):
+    def __init__(self):
+        self.channels = {}
+        self.irc_relay_enqueued = 0
+        self.irc_relay_dequeued = 0
+        self.hipchat_api_count = 0
+        self.hipchat_relay_count = 0
+        self.ratelimit_remaining = 0
+        self.ratelimit_limit = 0
+        self.ratelimit_reset = 0
+
 class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
     def __init__(self, host, port, password, nickname, channels, use_ssl, hipchat_to_irc_queue, irc_to_hipchat_queue, relay=True):
         self.ircbot = None
@@ -170,6 +232,7 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         # the update thread every 2 seconds
         self.update_interval = 2
         self.relay = relay
+        self.stats = IrcHipchatStats()
 
     def buildProtocol(self, addr):
         self.ircbot = IrcBot()
@@ -206,12 +269,39 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 if not re.match("^\s*$", message):
                     if self.relay:
                         self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
+                        self.stats.hipchat_relay_count += 1
+                        self.stats.channels[m['channel']].hipchat_relay_count += 1
                     else:
                         logging.debug("Not relaying messages %s", message)
         else:
             logging.error("Can't relay message to IRC; Not connected yet")
 
         reactor.callLater(self.update_interval, self.update_irc)
+
+    def local_send_room_message(self, room_id, message_body, html=False, color="green", notify=False, **kwargs):
+        if kwargs:
+            logging.warn("Unknown keyword args for send_room_message: %s" % kwargs)
+
+        format = "text"
+        if html:
+            format = "html"
+
+        try:
+            # https://www.hipchat.com/docs/apiv2/method/send_room_notification
+            url = ROOM_NOTIFICATION_URL % {"server": settings.HIPCHAT_SERVER,
+                                           "room_id": room_id,
+                                           "token": settings.V2_TOKEN}
+            data = {
+                "message": message_body,
+                "message_format": format,
+                "color": color,
+                "notify": notify,
+            }
+            headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+            return requests.post(url, headers=headers, data=json.dumps(data), **settings.REQUESTS_OPTIONS)
+        except:
+            logging.critical("Error in send_room_message: \n%s" % traceback.format_exc())
+
 
     def update_hipchat(self):
         # this has some smarts because of the hipchat ratelimiting
@@ -225,6 +315,8 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 todo[m["channel"]].append((m["user"], m["message"]))
             except KeyError:
                 todo[m["channel"]] = [(m["user"], m["message"])]
+            self.stats.irc_relay_dequeued += 1
+            self.stats.channels['#' + m['channel']].irc_relay_dequeued += 1
 
         for channel in todo:
             txt_message = ""
@@ -232,7 +324,12 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 txt_message = txt_message + "<%s> %s\n" % (user, urllib.unquote(msg))
 
             if self.relay:
-                self.send_room_message(channel, txt_message, html=False, notify=True)
+                response = self.local_send_room_message(channel, txt_message, html=False, notify=True)
+                self.stats.ratelimit_remaining = response.headers['x-ratelimit-remaining']
+                self.stats.ratelimit_limit = response.headers['x-ratelimit-limit']
+                self.stats.ratelimit_reset = response.headers['x-ratelimit-reset']
+                self.stats.hipchat_api_count += 1
+                self.stats.channels['#' + channel].hipchat_api_count += 1
             else:
                 logging.debug("Not relaying message %s",txt_message)
 

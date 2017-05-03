@@ -143,6 +143,13 @@ class IrcBot(irc.IRCClient):
         self.factory.stats.irc_relay_enqueued += 1
         self.factory.stats.channels[channel].irc_relay_enqueued +=1
 
+    def action(self, user, channel, msg):
+        """This will get called when the bot sees someone do an action."""
+        user = user.split('!', 1)[0]
+        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
+        self.factory.stats.irc_relay_enqueued += 1
+        self.factory.stats.channels[channel].irc_relay_enqueued += 1
+
     def stats(self, user, detail=False):
         """Output some statistics about our lovely self """
         msg = "irc_to_hipchat_queue length: %d" % self.factory.irc_to_hipchat_queue.qsize()
@@ -164,13 +171,6 @@ class IrcBot(irc.IRCClient):
                 msg = "%s: %s enqueued, %s dequeued, %s API calls, %s hipchat-to-irc" % (channel, self.factory.stats.channels[channel].irc_relay_enqueued, self.factory.stats.channels[channel].irc_relay_dequeued, self.factory.stats.channels[channel].hipchat_api_count, self.factory.stats.channels[channel].hipchat_relay_count)
                 self.msg(user, msg)
 
-
-    def action(self, user, channel, msg):
-        """This will get called when the bot sees someone do an action."""
-        user = user.split('!', 1)[0]
-        self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
-        self.factory.stats.irc_relay_enqueued += 1
-        self.factory.stats.channels['#' + channel].irc_relay_enqueued += 1
 
     # irc callbacks
 

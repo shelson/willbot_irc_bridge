@@ -117,7 +117,7 @@ class IrcBot(irc.IRCClient):
         """Called when bot has succesfully signed on to server."""
         for channel in self.factory.channels:
             self.join(channel)
-            self.factory.stats.channels[channel] = IrcHipchatChannelStat()
+            self.factory.stats.channels[channel.lower()] = IrcHipchatChannelStat() 
 
     def joined(self, channel):
         """This will get called when the bot joins the channel."""
@@ -141,14 +141,14 @@ class IrcBot(irc.IRCClient):
 
         self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
         self.factory.stats.irc_relay_enqueued += 1
-        self.factory.stats.channels[channel].irc_relay_enqueued +=1
+        self.factory.stats.channels[channel.lower()].irc_relay_enqueued +=1
 
     def action(self, user, channel, msg):
         """This will get called when the bot sees someone do an action."""
         user = user.split('!', 1)[0]
         self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
         self.factory.stats.irc_relay_enqueued += 1
-        self.factory.stats.channels[channel].irc_relay_enqueued += 1
+        self.factory.stats.channels[channel.lower()].irc_relay_enqueued += 1
 
     def stats(self, user, detail=False):
         """Output some statistics about our lovely self """
@@ -257,9 +257,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
             self.relay = self.ircbot.relay
             while not self.hipchat_to_irc_queue.empty():
                 m = self.hipchat_to_irc_queue.get()
-                # light touch html sanitisation for Confluence messages
+                # light touch html sanitisation for Confluence and other messages
                 # make this more generic in future as it's a hack
-                if m["user"] == "Confluence" or m["user"] == "Link":
+                if m["user"] == "Confluence" or m["user"] == "Link" or m["user"] == "PagerDuty":
                     soup = BeautifulSoup.BeautifulSoup(m["message"])
                     message =soup.getText(" ")
                     if m["user"] == "Confluence":
@@ -269,8 +269,12 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 if not re.match("^\s*$", message):
                     if self.relay:
                         self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
-                        self.stats.hipchat_relay_count += 1
-                        self.stats.channels[m['channel']].hipchat_relay_count += 1
+                        try:
+                            self.stats.hipchat_relay_count += 1
+                            self.stats.channels[m['channel'].lower()].hipchat_relay_count += 1
+                        except KeyError, e:
+                            logging.info("Exception caught trying to send message to IRC")
+                            logging.info(e)
                     else:
                         logging.debug("Not relaying messages %s", message)
         else:
@@ -315,8 +319,13 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 todo[m["channel"]].append((m["user"], m["message"]))
             except KeyError:
                 todo[m["channel"]] = [(m["user"], m["message"])]
-            self.stats.irc_relay_dequeued += 1
-            self.stats.channels['#' + m['channel']].irc_relay_dequeued += 1
+
+            try: 
+                self.stats.irc_relay_dequeued += 1
+                self.stats.channels[('#' + m['channel']).lower()].irc_relay_dequeued += 1
+            except KeyError:
+                logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
+                logging.info(e)
 
         for channel in todo:
             txt_message = ""
@@ -325,11 +334,16 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
 
             if self.relay:
                 response = self.local_send_room_message(channel, txt_message, html=False, notify=True)
-                self.stats.ratelimit_remaining = response.headers['x-ratelimit-remaining']
-                self.stats.ratelimit_limit = response.headers['x-ratelimit-limit']
-                self.stats.ratelimit_reset = response.headers['x-ratelimit-reset']
-                self.stats.hipchat_api_count += 1
-                self.stats.channels['#' + channel].hipchat_api_count += 1
+
+                try:
+                    self.stats.ratelimit_remaining = response.headers['x-ratelimit-remaining']
+                    self.stats.ratelimit_limit = response.headers['x-ratelimit-limit']
+                    self.stats.ratelimit_reset = response.headers['x-ratelimit-reset']
+                    self.stats.hipchat_api_count += 1
+                    self.stats.channels[('#' + channel).lower()].hipchat_api_count += 1
+                except KeyError, e:
+                    logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
+                    logging.info(e)
             else:
                 logging.debug("Not relaying message %s",txt_message)
 

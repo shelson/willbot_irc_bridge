@@ -274,8 +274,7 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
             self.relay = self.ircbot.relay
             while not self.hipchat_to_irc_queue.empty():
                 m = self.hipchat_to_irc_queue.get()
-                # light touch html sanitisation for Confluence and other messages
-                # make this more generic in future as it's a hack
+                message = m["message"]
                 if not re.match("^\s*$", message):
                     if self.relay:
                         if m["user"] == "":

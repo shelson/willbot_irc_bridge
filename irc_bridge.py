@@ -100,7 +100,16 @@ class IrcBridgePlugin(WillPlugin):
                     logging.error("Couldn't work out who sent message, giving up")
                     return
 
-            for msgline in message['body'].split(u'\n'):
+            if sender in self.irc_bridge_users_strip_html:
+                soup = BeautifulSoup.BeautifulSoup(message['body'])
+                hipchat_message =soup.getText(" ")
+            else:
+                hipchat_message = message['body']
+
+            if sender in self.irc_bridge_users_strip_name:
+                sender = ""
+
+            for msgline in hipchat_message.split(u'\n'):
                 hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "user": sender.encode('utf-8'), "message": msgline.encode('utf-8')})
 
             if irc_bridge_verbose:
@@ -267,14 +276,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 m = self.hipchat_to_irc_queue.get()
                 # light touch html sanitisation for Confluence and other messages
                 # make this more generic in future as it's a hack
-                if m["user"] in self.irc_bridge_users_strip_html:
-                    soup = BeautifulSoup.BeautifulSoup(m["message"])
-                    message =soup.getText(" ")
-                else:
-                    message = m["message"]
                 if not re.match("^\s*$", message):
                     if self.relay:
-                        if m["user"] in self.irc_bridge_users_strip_name:
+                        if m["user"] == "":
                             self.ircbot.msg(m["channel"], "%s" % message.encode('utf-8'))
                         else:
                             self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))

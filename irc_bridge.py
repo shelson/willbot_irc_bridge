@@ -69,8 +69,12 @@ class IrcBridgePlugin(WillPlugin):
                 self.use_ssl = False
             if hasattr(settings, "IRC_BRIDGE_USERS_STRIP_HTML"):
                 self.irc_bridge_users_strip_html = settings.IRC_BRIDGE_USERS_STRIP_HTML
+            else:
+                self.irc_bridge_users_strip_html = []
             if hasattr(settings, "IRC_BRIDGE_USERS_STRIP_NAME"):
                 self.irc_bridge_users_strip_name = settings.IRC_BRIDGE_USERS_STRIP_NAME
+            else:
+                self.irc_bridge_users_strip_name = []
 
             p = Process(target=self.bootstrap_irc)
             p.start()

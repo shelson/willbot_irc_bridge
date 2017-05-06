@@ -67,6 +67,10 @@ class IrcBridgePlugin(WillPlugin):
                 self.use_ssl = settings.IRC_BRIDGE_USE_SSL
             else:
                 self.use_ssl = False
+            if hasattr(settings, "IRC_BRIDGE_USERS_STRIP_HTML"):
+                self.irc_bridge_users_strip_html = settings.IRC_BRIDGE_USERS_STRIP_HTML
+            if hasattr(settings, "IRC_BRIDGE_USERS_STRIP_NAME"):
+                self.irc_bridge_users_strip_name = settings.IRC_BRIDGE_USERS_STRIP_NAME
 
             p = Process(target=self.bootstrap_irc)
             p.start()
@@ -259,18 +263,17 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 m = self.hipchat_to_irc_queue.get()
                 # light touch html sanitisation for Confluence and other messages
                 # make this more generic in future as it's a hack
-                if m["user"] == "Confluence" or m["user"] == "Link" or m["user"] == "PagerDuty":
-                    print m
-                    print m['message']
+                if m["user"] in self.irc_bridge_users_strip_html:
                     soup = BeautifulSoup.BeautifulSoup(m["message"])
                     message =soup.getText(" ")
-                    if m["user"] == "Confluence":
-                        message = " ".join(message.split(" ")[2:])
                 else:
                     message = m["message"]
                 if not re.match("^\s*$", message):
                     if self.relay:
-                        self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
+                        if m["user"] in self.irc_bridge_users_strip_name:
+                            self.ircbot.msg(m["channel"], "%s" % message.encode('utf-8'))
+                        else:
+                            self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
                         try:
                             self.stats.hipchat_relay_count += 1
                             self.stats.channels[m['channel'].lower()].hipchat_relay_count += 1

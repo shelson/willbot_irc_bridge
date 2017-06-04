@@ -198,7 +198,7 @@ class IrcBot(irc.IRCClient):
 
     def irc_TOPIC(self, prefix, params):
         user = prefix.split('!', 1)[0]
-        self.irc_to_hipchat_queue.put({"channel": params[0], "user": user, "topic": params[1]})
+        self.irc_to_hipchat_queue.put({"channel": params[0].split("#")[1], "user": user, "topic": params[1]})
 
     def irc_unknown(self, prefix, command, params):
         """ Handle unknown IRC command """
@@ -332,6 +332,8 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
             m = self.irc_to_hipchat_queue.get()
             if "topic" in m:
                 self.set_room_topic(m["channel"], m["topic"])
+                logging.info("Setting topic for %s to %s" % (m['channel'], m['topic']))
+                print("Setting topic for %s to %s" % (m['channel'], m['topic']))
             else:
                 try:
                     todo[m["channel"]].append((m["user"], m["message"]))

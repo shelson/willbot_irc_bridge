@@ -333,7 +333,6 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
             if "topic" in m:
                 self.set_room_topic(m["channel"], m["topic"])
                 logging.info("Setting topic for %s to %s" % (m['channel'], m['topic']))
-                print("Setting topic for %s to %s" % (m['channel'], m['topic']))
             else:
                 try:
                     todo[m["channel"]].append((m["user"], m["message"]))

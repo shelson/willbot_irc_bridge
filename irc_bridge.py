@@ -196,6 +196,10 @@ class IrcBot(irc.IRCClient):
         old_nick = prefix.split('!')[0]
         new_nick = params[0]
 
+    def irc_TOPIC(self, prefix, params):
+        user = prefix.split('!', 1)[0]
+        self.irc_to_hipchat_queue.put({"channel": params[0], "user": user, "topic": params[1]})
+
     def irc_unknown(self, prefix, command, params):
         """ Handle unknown IRC command """
         if command == "INVITE":
@@ -318,7 +322,6 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         except:
             logging.critical("Error in send_room_message: \n%s" % traceback.format_exc())
 
-
     def update_hipchat(self):
         # this has some smarts because of the hipchat ratelimiting
         # so every time it runs it batches up the messages for a
@@ -327,17 +330,20 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         todo = {}
         while not self.irc_to_hipchat_queue.empty():
             m = self.irc_to_hipchat_queue.get()
-            try:
-                todo[m["channel"]].append((m["user"], m["message"]))
-            except KeyError:
-                todo[m["channel"]] = [(m["user"], m["message"])]
+            if "topic" in m:
+                self.set_room_topic(m["channel"], m["topic"])
+            else:
+                try:
+                    todo[m["channel"]].append((m["user"], m["message"]))
+                except KeyError:
+                    todo[m["channel"]] = [(m["user"], m["message"])]
 
-            try: 
-                self.stats.irc_relay_dequeued += 1
-                self.stats.channels[('#' + m['channel']).lower()].irc_relay_dequeued += 1
-            except KeyError:
-                logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
-                logging.info(e)
+                try: 
+                    self.stats.irc_relay_dequeued += 1
+                    self.stats.channels[('#' + m['channel']).lower()].irc_relay_dequeued += 1
+                except KeyError:
+                    logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
+                    logging.info(e)
 
         for channel in todo:
             txt_message = ""

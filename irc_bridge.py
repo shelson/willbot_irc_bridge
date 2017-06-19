@@ -352,16 +352,21 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                 txt_message = txt_message + "<%s> %s\n" % (user, urllib.unquote(msg))
 
             if self.relay:
-                response = self.local_send_room_message(channel, txt_message, html=False, notify=True)
-
                 try:
-                    self.stats.ratelimit_remaining = response.headers['x-ratelimit-remaining']
-                    self.stats.ratelimit_limit = response.headers['x-ratelimit-limit']
-                    self.stats.ratelimit_reset = response.headers['x-ratelimit-reset']
-                    self.stats.hipchat_api_count += 1
-                    self.stats.channels[('#' + channel).lower()].hipchat_api_count += 1
-                except KeyError, e:
-                    logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
+                    response = self.local_send_room_message(channel, txt_message, html=False, notify=True)
+
+                    try:
+                        self.stats.ratelimit_remaining = response.headers['x-ratelimit-remaining']
+                        self.stats.ratelimit_limit = response.headers['x-ratelimit-limit']
+                        self.stats.ratelimit_reset = response.headers['x-ratelimit-reset']
+                        self.stats.hipchat_api_count += 1
+                        self.stats.channels[('#' + channel).lower()].hipchat_api_count += 1
+                    except KeyError, e:
+                        logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
+                        logging.info(e)
+
+                except Exception, e:
+                    logging.error("Failed to relay message to hipchat!")
                     logging.info(e)
             else:
                 logging.debug("Not relaying message %s",txt_message)

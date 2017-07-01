@@ -331,8 +331,10 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         while not self.irc_to_hipchat_queue.empty():
             m = self.irc_to_hipchat_queue.get()
             if "topic" in m:
-                self.set_room_topic(m["channel"], m["topic"])
-                logging.info("Setting topic for %s to %s" % (m['channel'], m['topic']))
+                # Truncate to 249 characters as Hipchat's max is 250
+                topic = m["topic"][:249]
+                self.set_room_topic(m["channel"], topic)
+                logging.info("Setting topic for %s to %s" % (m['channel'], topic))
             else:
                 try:
                     todo[m["channel"]].append((m["user"], m["message"]))

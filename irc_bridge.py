@@ -110,6 +110,7 @@ class IrcBridgePlugin(WillPlugin):
                 sender = ""
 
             for msgline in hipchat_message.split(u'\n'):
+                logging.debug("Added a message to hipchat_to_irc_queue; queue length is now %d", hipchat_to_irc_queue.qsize())
                 hipchat_to_irc_queue.put({"channel": "#%s" % message.room.name.encode('utf-8'), "user": sender.encode('utf-8'), "message": msgline.encode('utf-8')})
 
             if irc_bridge_verbose:
@@ -175,7 +176,7 @@ class IrcBot(irc.IRCClient):
         self.msg(user, msg)
         msg = "I have enqueued %d messages from IRC and sent %d of these to Hipchat via %d API calls" % (self.factory.stats.irc_relay_enqueued, self.factory.stats.irc_relay_dequeued, self.factory.stats.hipchat_api_count)
         self.msg(user, msg)
-        msg = "I have relayed %d messages from HipChat to IRC" % self.factory.stats.hipchat_relay_count
+        msg = "I have dequeued %d messages from HipChat and sent %d of these" % (self.factory.stats.hipchat_relay_dequeued, self.factory.stats.hipchat_relay_count)
         self.msg(user, msg)
         if (int(self.factory.stats.ratelimit_reset) - int(time.time())) < 0:
             msg = "x-ratelimit-remaining is currently %s out of %s" % (self.factory.stats.ratelimit_limit, self.factory.stats.ratelimit_limit)
@@ -185,7 +186,7 @@ class IrcBot(irc.IRCClient):
 
         if detail:
             for channel in self.factory.stats.channels:
-                msg = "%s: %s enqueued, %s dequeued, %s API calls, %s hipchat-to-irc" % (channel, self.factory.stats.channels[channel].irc_relay_enqueued, self.factory.stats.channels[channel].irc_relay_dequeued, self.factory.stats.channels[channel].hipchat_api_count, self.factory.stats.channels[channel].hipchat_relay_count)
+                msg = "%s: %s enqueued, %s dequeued, %s API calls, %s hipchat-to-irc dequeued, %s hipchat-to-irc" % (channel, self.factory.stats.channels[channel].irc_relay_enqueued, self.factory.stats.channels[channel].irc_relay_dequeued, self.factory.stats.channels[channel].hipchat_api_count, self.factory.stats.channels[channel].hipchat_relay_dequeued, self.factory.stats.channels[channel].hipchat_relay_count)
                 self.msg(user, msg)
 
 
@@ -225,6 +226,7 @@ class IrcHipchatChannelStat(object):
         self.irc_relay_enqueued = 0
         self.irc_relay_dequeued = 0
         self.hipchat_api_count = 0
+        self.hipchat_relay_dequeued = 0
         self.hipchat_relay_count = 0
 
 class IrcHipchatStats(object):
@@ -233,6 +235,7 @@ class IrcHipchatStats(object):
         self.irc_relay_enqueued = 0
         self.irc_relay_dequeued = 0
         self.hipchat_api_count = 0
+        self.hipchat_relay_dequeued = 0
         self.hipchat_relay_count = 0
         self.ratelimit_remaining = 0
         self.ratelimit_limit = 0
@@ -279,18 +282,30 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
             while not self.hipchat_to_irc_queue.empty():
                 m = self.hipchat_to_irc_queue.get()
                 message = m["message"]
+                try:
+                    self.stats.hipchat_relay_dequeued += 1
+                    self.stats.channels[m['channel'].lower()].hipchat_relay_dequeued += 1
+                except KeyError, e:
+                    logging.info("Exception caught trying to update hipchat to irc stats on enqueue")
+                    logging.info(e)
+
                 if not re.match("^\s*$", message):
+                    logging.debug("HC->IRC queue not empty, attempting to relay")
                     if self.relay:
-                        if m["user"] == "":
-                            self.ircbot.msg(m["channel"], "%s" % message.encode('utf-8'))
-                        else:
-                            self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
                         try:
-                            self.stats.hipchat_relay_count += 1
-                            self.stats.channels[m['channel'].lower()].hipchat_relay_count += 1
-                        except KeyError, e:
-                            logging.info("Exception caught trying to send message to IRC")
-                            logging.info(e)
+                            if m["user"] == "":
+                                self.ircbot.msg(m["channel"], "%s" % message.encode('utf-8'))
+                            else:
+                                self.ircbot.msg(m["channel"], "<%s> %s" % (m["user"], message.encode('utf-8')))
+                            try:
+                                self.stats.hipchat_relay_count += 1
+                                self.stats.channels[m['channel'].lower()].hipchat_relay_count += 1
+                            except KeyError, e:
+                                logging.info("Exception caught trying to update Hipchat to IRC stats")
+                                logging.info(e)
+                        except Exception, e:
+                            logging.error("Exception caught trying to relay message to IRC")
+                            logging.exception(e)
                     else:
                         logging.debug("Not relaying messages %s", message)
         else:

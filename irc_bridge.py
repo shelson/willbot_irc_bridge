@@ -343,7 +343,7 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         # room and sends them as a single hipchat "message"
         # or that's the theory at least
         todo = {}
-        if not (self.stats.ratelimit_remaining == 0 and self.stats.ratelimit_reset > time.time()):
+        if not (self.stats.ratelimit_remaining == '0' and int(self.stats.ratelimit_reset) > int(time.time())):
             while not self.irc_to_hipchat_queue.empty():
                 m = self.irc_to_hipchat_queue.get()
                 if "topic" in m:
@@ -373,9 +373,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
                     try:
                         response = self.local_send_room_message(channel, txt_message, html=False, notify=True)
                         try:
-                            self.stats.ratelimit_remaining = response.headers['x-ratelimit-remaining']
-                            self.stats.ratelimit_limit = response.headers['x-ratelimit-limit']
-                            self.stats.ratelimit_reset = response.headers['x-ratelimit-reset']
+                            self.stats.ratelimit_remaining = response.headers.get('x-ratelimit-remaining', 0) # Default to 0 remaining if we hit an issue w/ ratelimit headers
+                            self.stats.ratelimit_limit = response.headers.get('x-ratelimit-limit', self.stats.ratelimit_limit)
+                            self.stats.ratelimit_reset = response.headers.get('x-ratelimit-reset', self.stats.ratelimit_reset)
                             self.stats.hipchat_api_count += 1
                             self.stats.channels[('#' + channel).lower()].hipchat_api_count += 1
                         except KeyError, e:

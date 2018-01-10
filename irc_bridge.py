@@ -343,50 +343,52 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         # room and sends them as a single hipchat "message"
         # or that's the theory at least
         todo = {}
-        while not self.irc_to_hipchat_queue.empty():
-            m = self.irc_to_hipchat_queue.get()
-            if "topic" in m:
-                # Truncate to 249 characters as Hipchat's max is 250
-                topic = m["topic"][:249]
-                self.set_room_topic(m["channel"], topic)
-                logging.info("Setting topic for %s to %s" % (m['channel'], topic))
-            else:
-                try:
-                    todo[m["channel"]].append((m["user"], m["message"]))
-                except KeyError:
-                    todo[m["channel"]] = [(m["user"], m["message"])]
-
-                try: 
-                    self.stats.irc_relay_dequeued += 1
-                    self.stats.channels[('#' + m['channel']).lower()].irc_relay_dequeued += 1
-                except KeyError:
-                    logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
-                    logging.info(e)
-
-        for channel in todo:
-            txt_message = ""
-            for (user, msg) in todo[channel]:
-                txt_message = txt_message + "<%s> %s\n" % (user, urllib.unquote(msg))
-
-            if self.relay:
-                try:
-                    response = self.local_send_room_message(channel, txt_message, html=False, notify=True)
-
+        if not (self.stats.ratelimit_remaining == 0 and self.stats.ratelimit_reset > time.time()):
+            while not self.irc_to_hipchat_queue.empty():
+                m = self.irc_to_hipchat_queue.get()
+                if "topic" in m:
+                    # Truncate to 249 characters as Hipchat's max is 250
+                    topic = m["topic"][:249]
+                    self.set_room_topic(m["channel"], topic)
+                    logging.info("Setting topic for %s to %s" % (m['channel'], topic))
+                else:
                     try:
-                        self.stats.ratelimit_remaining = response.headers['x-ratelimit-remaining']
-                        self.stats.ratelimit_limit = response.headers['x-ratelimit-limit']
-                        self.stats.ratelimit_reset = response.headers['x-ratelimit-reset']
-                        self.stats.hipchat_api_count += 1
-                        self.stats.channels[('#' + channel).lower()].hipchat_api_count += 1
-                    except KeyError, e:
+                        todo[m["channel"]].append((m["user"], m["message"]))
+                    except KeyError:
+                        todo[m["channel"]] = [(m["user"], m["message"])]
+
+                    try: 
+                        self.stats.irc_relay_dequeued += 1
+                        self.stats.channels[('#' + m['channel']).lower()].irc_relay_dequeued += 1
+                    except KeyError:
                         logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
                         logging.info(e)
 
-                except Exception, e:
-                    logging.error("Failed to relay message to hipchat!")
-                    logging.info(e)
-            else:
-                logging.debug("Not relaying message %s",txt_message)
+            for channel in todo:
+                txt_message = ""
+                for (user, msg) in todo[channel]:
+                    txt_message = txt_message + "<%s> %s\n" % (user, urllib.unquote(msg))
+
+                if self.relay:
+                    try:
+                        response = self.local_send_room_message(channel, txt_message, html=False, notify=True)
+                        try:
+                            self.stats.ratelimit_remaining = response.headers['x-ratelimit-remaining']
+                            self.stats.ratelimit_limit = response.headers['x-ratelimit-limit']
+                            self.stats.ratelimit_reset = response.headers['x-ratelimit-reset']
+                            self.stats.hipchat_api_count += 1
+                            self.stats.channels[('#' + channel).lower()].hipchat_api_count += 1
+                        except KeyError, e:
+                            logging.error("Failed to update channel stats for %s" % ('#' + m['channel']).lower())
+                            logging.info(e)
+
+                    except Exception, e:
+                        logging.error("Failed to relay message to hipchat!")
+                        logging.info(e)
+                else:
+                    logging.debug("Not relaying message %s",txt_message)
+        else:
+            logging.debug("Hit Hipchat ratelimit; delaying attempt to relay for %d seconds", self.update_interval)
 
         # schedule ourselves for another run
         reactor.callLater(self.update_interval, self.update_hipchat)

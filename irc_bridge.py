@@ -279,7 +279,8 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
 
 
     def update_irc(self):
-        logging.info("%s: starting update_irc function" % datetime.datetime.now())
+        starttime = datetime.datetime.now()
+        logging.info("%s: starting update_irc function" % starttime)
         if hasattr(self.ircbot, "msg"):
             # update relay state
             self.relay = self.ircbot.relay
@@ -315,6 +316,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         else:
             logging.error("Can't relay message to IRC; Not connected yet")
 
+        if datetime.datetime.now() - starttime > datetime.timedelta(seconds=10):
+            logging.info("%s: Update IRC took more than 10s! (%s)" % (datetime.datetime.now(), datetime.datetime.now() - starttime))
+
         logging.info("%s: update_irc finished, rescheduling" % datetime.datetime.now())
         reactor.callLater(self.update_interval, self.update_irc)
 
@@ -347,7 +351,8 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
         # so every time it runs it batches up the messages for a
         # room and sends them as a single hipchat "message"
         # or that's the theory at least
-        logging.info("%s: starting update_hipchat function" % datetime.datetime.now())
+        starttime = datetime.datetime.now()
+        logging.info("%s: starting update_hipchat function" % starttime)
         todo = {}
         if not (self.stats.ratelimit_remaining == '0' and int(self.stats.ratelimit_reset) > int(time.time())):
             while not self.irc_to_hipchat_queue.empty():
@@ -397,6 +402,9 @@ class IrcHipchatBridge(protocol.ClientFactory, HipChatMixin):
             logging.debug("Hit Hipchat ratelimit; delaying attempt to relay for %d seconds", self.update_interval)
 
         # schedule ourselves for another run
+        if datetime.datetime.now() - starttime > datetime.timedelta(seconds=10):
+            logging.info("%s: Update Hipchat took more than 10s! (%s)" % (datetime.datetime.now(), datetime.datetime.now() - starttime))
+
         logging.info("%s: update_hipchat function finished, rescheduling" % datetime.datetime.now())
         reactor.callLater(self.update_interval, self.update_hipchat)
 

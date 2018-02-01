@@ -155,6 +155,8 @@ class IrcBot(irc.IRCClient):
                 self.stats(user)
             elif irc.stripFormatting(msg) == "stats detail":
                 self.stats(user, detail=True)
+            elif irc.stripFormatting(msg).startswith("debug"):
+                self.toggle_debug(user, irc.stripFormatting(msg))
             else:
                 msg = "I don't respond well to PM's yet."
                 self.msg(user, msg)
@@ -170,6 +172,16 @@ class IrcBot(irc.IRCClient):
         self.irc_to_hipchat_queue.put({"channel": channel.split("#")[1], "user": user, "message": irc.stripFormatting(msg)})
         self.factory.stats.irc_relay_enqueued += 1
         self.factory.stats.channels[channel.lower()].irc_relay_enqueued += 1
+
+    def toggle_debug(self, user, debug_msg):
+        """Toggle the log level between DEBUG and INFO"""
+        if debug_msg == "debug on":
+            log_level = logging.DEBUG
+        else:
+            log_level = logging.INFO
+        # Reset root logger level
+        logging.getLogger().setLevel(log_level)
+        self.msg("Set loglevel to %s", logging.getLogger().getEffectiveLevel())
 
     def stats(self, user, detail=False):
         """Output some statistics about our lovely self """

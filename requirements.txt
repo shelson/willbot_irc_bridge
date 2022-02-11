@@ -1,4 +1,4 @@
 BeautifulSoup==3.2.1
 pyOpenSSL==17.5.0
 service-identity==14.0.0
-Twisted==19.7.0
+Twisted==22.1.0
